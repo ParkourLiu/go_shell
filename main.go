@@ -114,13 +114,14 @@ func checkConn(conn *websocket.Conn) (string, bool) {
 		token64 = Unow - token64
 		if token64 >= -86400 && token64 <= 86400 { //误差一天内,验证成功
 			ip = ip + " - " + spl[1]
+			fmt.Println(now, ip, "连接成功")
 			return ip, true
 		} else {
 			fmt.Println(now, ip, "此客户端token信息超过一天", token64)
 			return ip, false
 		}
 	} else {
-		fmt.Println(now, ip, "此客户端无验证信息")
+		fmt.Println(now, ip, "此客户端无连接验证信息")
 		return ip, false
 	}
 
@@ -132,12 +133,9 @@ func svrConnClientHandler(conn *websocket.Conn) {
 	//验证是否允许连接
 	ip, flag := checkConn(conn)
 	if flag == false {
-		now := time.Now().Format("2006-01-02 15:04:05")
-		fmt.Println(now, ip, "此客户端非法连接")
 		return
 	}
 	now := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Println(now, ip)
 	redisClient.Zadd(redisIP(), time.Now().Unix(), ip) //存redis zset 心跳
 	//连上后先查看是否存在要接收的休眠消息,是的话先推送缓存的休眠消息
 	sleepflag, err := redisClient.Get(redisSLEEP(ip))
@@ -218,7 +216,8 @@ func controlLogin(conn *websocket.Conn) (string, bool) {
 		}
 		tokenBytes = encDec(tokenBytes)
 		tokenStr := string(tokenBytes)
-		if tokenStr == "ParkourLiu-ParkourLiu123" {
+		if tokenStr == "ParkourLiu-ParkourLiu321" {
+			fmt.Println(now, ip, "控制台登陆成功!")
 			return ip, true //登陆成功
 		} else {
 			fmt.Println(now, ip, "此控制台登陆账号密码错误：", token)
@@ -226,7 +225,7 @@ func controlLogin(conn *websocket.Conn) (string, bool) {
 		}
 
 	} else {
-		fmt.Println(now, ip, "此控制台无登陆信息：")
+		fmt.Println(now, ip, "此控制台无登陆验证信息")
 		return ip, false
 	}
 
@@ -494,6 +493,7 @@ func checkActive() {
 		time.Sleep(time.Minute) //休眠一分钟
 	}
 }
+
 func main() {
 	fmt.Println("启动。。。。")
 	go pushClientMsg()  //发消息给客户端

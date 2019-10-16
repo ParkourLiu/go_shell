@@ -29,7 +29,9 @@ const (
 )
 
 var (
-	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl     = ""
+	baseUrl     = ""
 	conn        *websocket.Conn
 	origin      = "http://" + baseUrl + "/"
 	url         = "ws://" + baseUrl + "/svrConnControlHandler"
