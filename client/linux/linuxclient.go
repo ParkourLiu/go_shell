@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/alexflint/go-filemutex"
+	"github.com/denisbrodbeck/machineid"
 	"github.com/xxtea/xxtea-go/xxtea"
 	"golang.org/x/net/websocket"
 	"io"
@@ -35,9 +36,11 @@ const (
 )
 
 var (
-	s_lock int
-	m      *filemutex.FileMutex
-	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	s_lock  int
+	m       *filemutex.FileMutex
+	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl = "124.156.100.149:8080"
+	//baseUrl      = "106.54.242.217"
 	conn         *websocket.Conn
 	origin       = "http://" + baseUrl + "/"
 	url          = "ws://" + baseUrl + "/hfuiefdhuiwe32uhi"
@@ -49,10 +52,11 @@ var (
 )
 
 type Message struct {
-	Uuid string `json:"uuid"`
-	Ip   string `json:"ip"`
-	Name string `json:"name"`
-	Msg  string `json:"msg"`
+	Uuid      string `json:"uuid"`
+	Machineid string `json:"machineid"` //客户端唯一识别码
+	Ip        string `json:"ip"`
+	Name      string `json:"name"`
+	Msg       string `json:"msg"`
 
 	FileName string `json:"fileName"`
 	FileBody string `json:"fileBody"`
@@ -320,10 +324,17 @@ func strDec(str string) string {
 
 func token() string {
 	Unow := time.Now().Unix()
-	mac := getMac()
-	tokenBytes := encDec([]byte(fmt.Sprint(Unow) + "-" + mac)) //当前时间戳+mac地址
+	//mac := getMac()
+	//tokenBytes := encDec([]byte(fmt.Sprint(Unow) + "-" + mac)) //当前时间戳+mac地址
+	machineid := getMachineid()
+	tokenBytes := encDec([]byte(fmt.Sprint(Unow) + "--" + machineid)) //当前时间戳+系统的唯一识别码
 	token := base64.StdEncoding.EncodeToString(tokenBytes)
 	return token
+}
+
+func getMachineid() string { //每个系统的唯一识别码
+	machineid, _ := machineid.ID()
+	return machineid
 }
 func getMac() string {
 	// 获取本机的MAC地址

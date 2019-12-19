@@ -6,12 +6,13 @@ import (
 )
 
 type Condom struct {
-	IP      string
-	Name    string
-	Whoami  string
-	Remark  string
-	Time    string
-	checked bool
+	Machineid string //客户端唯一识别码
+	IP        string
+	Name      string
+	Whoami    string
+	Remark    string
+	Time      string
+	checked   bool
 }
 
 type CondomModel struct {
@@ -40,6 +41,8 @@ func (m *CondomModel) Value(row, col int) interface{} {
 		return item.Name
 	case 4:
 		return item.Time
+	case 5:
+		return item.Machineid
 	}
 	panic("unexpected col")
 }
@@ -87,6 +90,8 @@ func (m *CondomModel) Less(i, j int) bool {
 		return c(a.Name < b.Name)
 	case 4:
 		return c(a.Time < b.Time)
+	case 5:
+		return c(a.Machineid < b.Machineid)
 	}
 
 	panic("unreachable")

