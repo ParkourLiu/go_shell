@@ -220,7 +220,7 @@ func controlLogin(conn *websocket.Conn) (string, bool) {
 		}
 		tokenBytes = encDec(tokenBytes)
 		tokenStr := string(tokenBytes)
-		if tokenStr == "jintian-jintian123" {
+		if tokenStr == "ParkourLiu-ParkourLiu123" {
 			fmt.Println(now, ip, "控制台登陆成功!")
 			return ip, true //登陆成功
 		} else {

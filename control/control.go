@@ -29,9 +29,9 @@ const (
 )
 
 var (
-	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
-	//baseUrl     = "124.156.10.149:8080"
-	//baseUrl     = "106.154.242.217"
+	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl     = "124.156.100.149:8080"
+	baseUrl     = "106.54.242.217"
 	conn        *websocket.Conn
 	origin      = "http://" + baseUrl + "/"
 	url         = "ws://" + baseUrl + "/svrConnControlHandler"
@@ -112,6 +112,17 @@ func receiveMsg() { //接收返回的消息
 					outTE.AppendText("创建本地文件夹失败:" + err.Error() + "\r\n")
 					continue
 				}
+				//去除文件特殊符号
+				message.FileName = strings.ReplaceAll(message.FileName, "/", "__")
+				message.FileName = strings.ReplaceAll(message.FileName, "\\", "__")
+				message.FileName = strings.ReplaceAll(message.FileName, ":", "")
+				message.FileName = strings.ReplaceAll(message.FileName, "?", "")
+				message.FileName = strings.ReplaceAll(message.FileName, "|", "")
+				message.FileName = strings.ReplaceAll(message.FileName, ">", "")
+				message.FileName = strings.ReplaceAll(message.FileName, "<", "")
+				message.FileName = strings.ReplaceAll(message.FileName, "\"", "")
+				message.FileName = strings.ReplaceAll(message.FileName, "*", "")
+
 				file, err := os.Create("./Download/" + message.FileName)
 				if err != nil {
 					outTE.AppendText("创建本地文件失败:" + err.Error() + "\r\n")
@@ -238,7 +249,7 @@ func main() {
 							}
 						},
 					},
-					LineEdit{AssignTo: &loginPwdTE, CueBanner: "pwd",
+					LineEdit{AssignTo: &loginPwdTE, CueBanner: "pwd", PasswordMode: true,
 						OnKeyDown: func(key walk.Key) {
 							if "Return" == key.String() {
 								login = loginNameTE.Text() + "-" + loginPwdTE.Text() //设置全局登陆信息
@@ -456,7 +467,7 @@ func KeyDown(key walk.Key) {      //Down   Up   Return
 		} else if cmdStr == "同志们辛苦了" { //休眠全部-----------------------------------------------------------------------
 			message.Name = ALL_SLEEP
 		} else if strings.HasPrefix(cmdStr, "ddd ") { //判断下载-----------------------------------------------------------------------------
-			args := strings.Split(cmdStr, " ") //按空格切割参数
+			args := strings.Split(cmdStr, "ddd ") //按空格切割参数
 			if len(args) != 2 {
 				outTE.AppendText("非法指令,请保证download参数正确\r\n")
 				return

