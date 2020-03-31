@@ -8,6 +8,7 @@ import (
 var (
 	screenMW        *walk.MainWindow
 	IMGscreen       *walk.ImageView
+	zhen            *walk.Label
 	bitmap          *walk.Bitmap
 	screenMachineid = ""    //当前是否有肉鸡连接视频中，有的话值为肉鸡唯一识别码
 	screenLock      = false //单例锁
@@ -39,6 +40,7 @@ func onScreen(ip string) {
 		Size:     Size{400, 600},
 		Layout:   Grid{Columns: 2},
 		Children: []Widget{
+			Label{AssignTo: &zhen, Text: "0"},
 			ImageView{
 				AssignTo: &IMGscreen,
 				Mode:     ImageViewModeStretch,

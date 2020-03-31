@@ -23,7 +23,7 @@ func RemoteIp(r *http.Request) string {
 
 func encDec(byt []byte) []byte {
 	for i, v := range byt {
-		byt[i] = (byte(i+95) & (^v)) | (v & (^byte(i + 95)));
+		byt[i] = (byte(i+95) & (^v)) | (v & (^byte(i + 95)))
 	}
 	return byt
 }

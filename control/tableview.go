@@ -11,6 +11,7 @@ type Condom struct {
 	Name      string
 	Whoami    string
 	Remark    string
+	Terrace   string
 	Time      string
 	checked   bool
 }
@@ -32,16 +33,18 @@ func (m *CondomModel) Value(row, col int) interface{} {
 
 	switch col {
 	case 0:
-		return item.IP
+		return item.Terrace
 	case 1:
-		return item.Remark
+		return item.IP
 	case 2:
-		return item.Whoami
+		return item.Remark
 	case 3:
-		return item.Name
+		return item.Whoami
 	case 4:
-		return item.Time
+		return item.Name
 	case 5:
+		return item.Time
+	case 6:
 		return item.Machineid
 	}
 	panic("unexpected col")
@@ -81,16 +84,18 @@ func (m *CondomModel) Less(i, j int) bool {
 
 	switch m.sortColumn {
 	case 0:
-		return c(a.IP < b.IP)
+		return c(a.Terrace < b.Terrace)
 	case 1:
-		return c(a.Remark < b.Remark)
+		return c(a.IP < b.IP)
 	case 2:
-		return c(a.Whoami < b.Whoami)
+		return c(a.Remark < b.Remark)
 	case 3:
-		return c(a.Name < b.Name)
+		return c(a.Whoami < b.Whoami)
 	case 4:
-		return c(a.Time < b.Time)
+		return c(a.Name < b.Name)
 	case 5:
+		return c(a.Time < b.Time)
+	case 6:
 		return c(a.Machineid < b.Machineid)
 	}
 

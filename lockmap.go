@@ -24,6 +24,17 @@ func (d LockMapSS) Delete(k string) {
 	defer d.Lock.Unlock()
 	delete(d.Map, k)
 }
+func (d LockMapSS) Get(k string) string {
+	d.Lock.Lock()
+	defer d.Lock.Unlock()
+	return d.Map[k]
+}
+func (d LockMapSS) exist(k string) (string, bool) {
+	d.Lock.Lock()
+	defer d.Lock.Unlock()
+	v, ok := d.Map[k]
+	return v, ok
+}
 
 //======================================================================================
 func NewLockMapSC() *LockMapSC {
@@ -45,6 +56,17 @@ func (d LockMapSC) Delete(k string) {
 	defer d.Lock.Unlock()
 	delete(d.Map, k)
 }
+func (d LockMapSC) Get(k string) *websocket.Conn {
+	d.Lock.Lock()
+	defer d.Lock.Unlock()
+	return d.Map[k]
+}
+func (d LockMapSC) exist(k string) (*websocket.Conn, bool) {
+	d.Lock.Lock()
+	defer d.Lock.Unlock()
+	conn, ok := d.Map[k]
+	return conn, ok
+}
 
 //======================================================================================
 func NewLockMapCS() *LockMapCS {
@@ -65,6 +87,17 @@ func (d LockMapCS) Delete(k *websocket.Conn) {
 	d.Lock.Lock()
 	defer d.Lock.Unlock()
 	delete(d.Map, k)
+}
+func (d LockMapCS) Get(k *websocket.Conn) string {
+	d.Lock.Lock()
+	defer d.Lock.Unlock()
+	return d.Map[k]
+}
+func (d LockMapCS) exist(k *websocket.Conn) (string, bool) {
+	d.Lock.Lock()
+	defer d.Lock.Unlock()
+	v, ok := d.Map[k]
+	return v, ok
 }
 
 //======================================================================================

